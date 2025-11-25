@@ -16,11 +16,14 @@ import org.bdj.external.*;
 
 public class InitXlet implements Xlet, UserEventListener
 {
-    public static final int BUTTON_X = 10;
-    public static final int BUTTON_O = 19;
-    public static final int BUTTON_U = 38;
-    public static final int BUTTON_D = 40;
     private static InitXlet instance;
+    private EventQueue eq;
+    private HScene scene;
+    private Screen gui;
+    private XletContext context;
+    private static PrintStream console;
+    private static final ArrayList messages = new ArrayList();
+    // --- Inner Classes ---
     public static class EventQueue
     {
         private LinkedList l;
@@ -44,121 +47,22 @@ public class InitXlet implements Xlet, UserEventListener
             return o;
         }
     }
-    private EventQueue eq;
-    private HScene scene;
-    private Screen gui;
-    private XletContext context;
-    private static PrintStream console;
-    private static final ArrayList messages = new ArrayList();
+
+    // --- Public Methods ---
     public void initXlet(XletContext context)
     {
         // Privilege escalation
         try {
-            DisableSecurityManagerAction.execute();
-        } catch (Exception e) {}
+            escalatePrivileges();
+            initializeInstance(context);
+            setupGUI();
+            setupEventListeners();
+            startExploitThread();
 
-        instance = this;
-        this.context = context;
-        this.eq = new EventQueue();
-        scene = HSceneFactory.getInstance().getDefaultHScene();
-        try
-        {
-            gui = new Screen(messages);
-            gui.setSize(1920, 1080); // BD screen size
-            scene.add(gui, BorderLayout.CENTER);
-            UserEventRepository repo = new UserEventRepository("input");
-            repo.addKey(BUTTON_X);
-            repo.addKey(BUTTON_O);
-            repo.addKey(BUTTON_U);
-            repo.addKey(BUTTON_D);
-            EventManager.getInstance().addUserEventListener(this, repo);
-            (new Thread()
-            {
-                public void run()
-                {
-                    try
-                    {
-                        scene.repaint();
-                        console = new PrintStream(new MessagesOutputStream(messages, scene));
-                        //InputStream is = getClass().getResourceAsStream("/program.data.bin");
-                        //CRunTime.init(is);
-    
-                        console.println("Hen Loader LP v1.0, based on:");
-                        console.println("- GoldHEN 2.4b18.7 by SiSTR0");
-                        console.println("- poops code by theflow0");
-                        console.println("- lapse code by Gezine");
-                        console.println("- BDJ build environment by kimariin");
-                        console.println("- java console by sleirsgoevy");
-                        console.println("");
-                        System.gc(); // this workaround somehow makes Call API working
-                        if (System.getSecurityManager() != null) {
-                            console.println("Priviledge escalation failure, unsupported firmware?");
-                        } else {
-                            Kernel.initializeKernelOffsets();
-                            String fw = Helper.getCurrentFirmwareVersion();
-                            console.println("Firmware: " + fw);
-                            if (!KernelOffset.hasPS4Offsets())
-                            {
-                                console.println("Unsupported Firmware");
-                            } else {
-                                while (true)
-                                {
-                                    int lapseFailCount = 0, c = 0;
-                                    boolean lapseSupported = (!fw.equals("12.50") && !fw.equals("12.52"));
-                                    console.println("\nSelect the mode to run:");
-                                    if (lapseSupported) {
-                                        console.println("* X = Lapse");
-                                        console.println("* O = Poops");
-                                    } else {
-                                        console.println("* X = Poops");
-                                    }
-                                    
-                                    while ((c != BUTTON_O || !lapseSupported) && c != BUTTON_X)
-                                    {
-                                        c = pollInput();
-                                    }
-                                    if (c == BUTTON_X && lapseSupported)
-                                    {
-                                        int result = org.bdj.external.Lapse.main(console);
-                                        if (result == 0)
-                                        {
-                                            console.println("Success");
-                                            break;
-                                        }
-                                        if (result <= -6 || lapseFailCount++ >= 3)
-                                        {
-                                            console.println("Fatal fail(" + result + "), please REBOOT PS4");
-                                            break;
-                                        } else {
-                                            console.println("Failed (" + result + "), but you can try again");
-                                        }
-                                    } else {
-                                        int result = org.bdj.external.Poops.main(console);
-                                        if (result == 0)
-                                        {
-                                            console.println("Success");
-                                            break;
-                                        } else {
-                                            console.println("Fatal fail(" + result + "), please REBOOT PS4");
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch(Throwable e)
-                    {
-                        scene.repaint();
-                    }
-                }
-            }).start();
-        }
-        catch(Throwable e)
-        {
+        } catch (Exception e) {
+            Logger.log(console, "Initialization error: " + e.getMessage());
             printStackTrace(e);
         }
-        scene.validate();
     }
     public void startXlet()
     {
@@ -175,32 +79,25 @@ public class InitXlet implements Xlet, UserEventListener
         scene.remove(gui);
         scene = null;
     }
-    private void printStackTrace(Throwable e)
-    {
-        StringWriter sw = new StringWriter();
-        PrintWriter pw = new PrintWriter(sw);
-        e.printStackTrace(pw);
-        if (console != null)
-            console.print(sw.toString());
-    }
+
     public void userEventReceived(UserEvent evt)
     {
-        boolean ret = false;
-        if(evt.getType() == HRcEvent.KEY_PRESSED)
+        if (evt.getType() == HRcEvent.KEY_PRESSED)
         {
-            ret = true;
-            if(evt.getCode() == BUTTON_U)
-                gui.top += 270;
-            else if(evt.getCode() == BUTTON_D)
-                gui.top -= 270;
-            else
-                ret = false;
-            scene.repaint();
+            switch (evt.getCode())
+            {
+                case Constants.BUTTON_U:
+                    gui.top += 270;
+                    scene.repaint();
+                    return;
+                case Constants.BUTTON_D:
+                    gui.top -= 270;
+                    scene.repaint();
+                    return;
+                default:
+                    eq.put(new Integer(evt.getCode()));
+            }
         }
-        if(ret)
-            return;
-        if(evt.getType() == HRcEvent.KEY_PRESSED)
-            eq.put(new Integer(evt.getCode()));
     }
     public static void repaint()
     {
@@ -209,8 +106,159 @@ public class InitXlet implements Xlet, UserEventListener
     public static int pollInput()
     {
         Object ans = instance.eq.get();
-        if(ans == null)
-            return 0;
-        return ((Integer)ans).intValue();
+        return (ans == null) ? 0 : ((Integer) ans).intValue();
+    }
+    // --- Private Methods ---
+    private void escalatePrivileges() throws Exception
+    {
+        try {
+            DisableSecurityManagerAction.execute();
+            Logger.log(console, "Privilege escalation successful.");
+        } catch (Exception e) {
+            Logger.log(console, "Privilege escalation failed: " + e.getMessage());
+            throw e;
+        }
+    }
+
+    private void initializeInstance(XletContext context)
+    {
+        instance = this;
+        this.context = context;
+        this.eq = new EventQueue();
+    }
+
+    private void setupGUI()
+    {
+        scene = HSceneFactory.getInstance().getDefaultHScene();
+        gui = new Screen(messages);
+        gui.setSize(Constants.SCREEN_WIDTH, Constants.SCREEN_HEIGHT);
+        scene.add(gui, BorderLayout.CENTER);
+        scene.validate();
+    }
+
+    private void setupEventListeners()
+    {
+        UserEventRepository repo = new UserEventRepository("input");
+        repo.addKey(Constants.BUTTON_X);
+        repo.addKey(Constants.BUTTON_O);
+        repo.addKey(Constants.BUTTON_U);
+        repo.addKey(Constants.BUTTON_D);
+        EventManager.getInstance().addUserEventListener(this, repo);
+    }
+
+    private void startExploitThread()
+    {
+        (new Thread() {
+            public void run() {
+                try {
+                    scene.repaint();
+                    console = new PrintStream(new MessagesOutputStream(messages, scene));
+                    logStartupInfo();
+                    handleExploits();
+                } catch (Throwable e) {
+                    Logger.log(console, "Unexpected error: " + e.getMessage());
+                    printStackTrace(e);
+                    scene.repaint();
+                }
+            }
+        }).start();
+    }
+
+    private void handleExploits() {
+        System.gc(); // this workaround somehow makes Call API working
+        if (System.getSecurityManager() != null) {
+            Logger.log(console, "Privilege escalation failure, unsupported firmware?");
+            return;
+        }
+    
+        Kernel.initializeKernelOffsets();
+        String firmwareVersion = Helper.getCurrentFirmwareVersion();
+        Logger.log(console, "Firmware: " + firmwareVersion);
+    
+        if (!KernelOffset.hasPS4Offsets()) {
+            Logger.log(console, "Unsupported Firmware");
+            return;
+        }
+
+        boolean lapseSupported = (!firmwareVersion.equals("12.50") && !firmwareVersion.equals("12.52"));
+        runExploitLoop(lapseSupported);
+    }
+    
+    private void runExploitLoop(boolean lapseSupported)
+    {
+        int lapseFailCount = 0;
+    
+        while (true) {
+            int input = waitForUserInput(lapseSupported);
+    
+            if (runExploit(lapseSupported, input, console, lapseFailCount)) {
+                break;
+            }
+    
+            if (input == Constants.BUTTON_X && lapseSupported) {
+                lapseFailCount++;
+            }
+        }
+    }
+
+    private boolean runExploit(boolean lapseSupported, int button, PrintStream console, int lapseFailCount)
+    {
+        try {
+            int result = (button == Constants.BUTTON_X && lapseSupported)
+                ? org.bdj.external.Lapse.main(console)
+                : org.bdj.external.Poops.main(console);
+
+            if (result == 0) {
+                Logger.log(console, "Success");
+                return true;
+            }
+
+            if (button == Constants.BUTTON_X && lapseSupported && (result <= -6 || lapseFailCount >= 3)) {
+                Logger.log(console, "Fatal fail(" + result + "), please REBOOT PS4");
+                return true;
+            }
+
+            Logger.log(console, "Failed (" + result + "), but you can try again");
+            return false;
+        } catch (Exception e) {
+            Logger.log(console, "Exception during exploit: " + e.getMessage());
+            printStackTrace(e);
+            return true;
+        }
+    }
+    
+    private int waitForUserInput(boolean lapseSupported)
+    {
+        int input = 0;
+        Logger.log(console, "\nSelect the mode to run:");
+        if (lapseSupported) {
+            Logger.log(console, "* X = Lapse");
+            Logger.log(console, "* O = Poops");
+        } else {
+            Logger.log(console, "* X = Poops");
+        }
+    
+        while ((input != Constants.BUTTON_O || !lapseSupported) && input != Constants.BUTTON_X) {
+            input = pollInput();
+        }
+        return input;
+    }
+
+    private void logStartupInfo()
+    {
+        Logger.log(console, "Hen Loader LP v1.0, based on:");
+        Logger.log(console, "- GoldHEN 2.4b18.7 by SiSTR0");
+        Logger.log(console, "- poops code by theflow0");
+        Logger.log(console, "- lapse code by Gezine");
+        Logger.log(console, "- BDJ build environment by kimariin");
+        Logger.log(console, "- java console by sleirsgoevy");
+        Logger.log(console, "");
+    }
+
+    private void printStackTrace(Throwable e)
+    {
+        StringWriter sw = new StringWriter();
+        e.printStackTrace(new PrintWriter(sw));
+        Logger.log(console, sw.toString());
     }
 }
